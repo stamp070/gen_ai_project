@@ -1,0 +1,25 @@
+services:
+  # 1. บริการ Backend (FastAPI)
+  backend:
+    build: ./backend
+    container_name: fastapi_app
+    ports:
+      - "8080:8080"  # เข้าผ่าน localhost:8080
+    volumes:
+      - ./backend:/app  # ช่วยให้แก้โค้ดแล้วอัปเดตทันที (Hot Reload)
+    environment:
+      - ENV=development
+
+  # 2. บริการ Frontend (Next.js)
+  frontend:
+    build: ./frontend
+    container_name: nextjs_app
+    ports:
+      - "3000:3000"  # เข้าผ่าน localhost:3000
+    volumes:
+      - ./frontend:/app
+      - /app/node_modules  # กันไม่ให้เครื่องเราไปทับ node_modules ใน container
+    environment:
+      - NEXT_PUBLIC_API_URL=http://localhost:8080  # ชี้ไปที่ชื่อ service ของ fastapi
+    depends_on:
+      - backend  # ให้ FastAPI รันขึ้นมาก่อนค่อยรัน Next.js
