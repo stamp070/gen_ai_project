@@ -1,5 +1,4 @@
 """
-agent/nodes/execute.py (v2)
 • Execute steps ONE AT A TIME — not all at once
 • After each step, re-observe state changes
 • Side-effects are reflected into AgentState immediately
@@ -53,7 +52,7 @@ def _apply_tool_effects(state: AgentState, action: str, params: dict):
 
     elif action == "set_patient_status":
         try:
-            state.status = PatientStatus(params.get("new_status", state.status))
+            state.status = PatientStatus(params.get("new_status"))
         except ValueError:
             pass
 

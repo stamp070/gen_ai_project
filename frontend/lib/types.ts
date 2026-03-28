@@ -26,7 +26,6 @@ export interface WardState {
     available_nurses: number;
     available_doctors: number;
     pending_alerts: number;
-    workload_score: number;
 }
 
 export type PipelinePhase = 'observe' | 'memory' | 'reason' | 'goal' | 'governance' | 'plan' | 'execute' | 'reeval';

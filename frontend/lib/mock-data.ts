@@ -5,7 +5,6 @@ export const mockWardState: WardState = {
     available_nurses: 3,
     available_doctors: 1,
     pending_alerts: 12,
-    workload_score: 0.85,
 };
 
 export const mockPatients: Patient[] = [

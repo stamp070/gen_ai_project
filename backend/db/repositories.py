@@ -84,8 +84,36 @@ def get_ward_state(ward_id: str) -> dict:
         "available_nurses": avail_nurses,
         "available_doctors": avail_doctors,
         "pending_alerts": pending,
-        "workload_score": round(workload, 3),
     }
+
+
+def save_ward_state_history(ward_id: str, ward_state: dict) -> Optional[str]:
+    """
+    Save a ward state snapshot for historical tracking & analytics.
+    Returns snapshot_id.
+    """
+    sb = get_supabase()
+    snapshot_data = {
+        "ward_id": ward_id,
+        "total_patients": ward_state.get("total_patients"),
+        "available_nurses": ward_state.get("available_nurses"),
+        "available_doctors": ward_state.get("available_doctors"),
+        "pending_alerts": ward_state.get("pending_alerts"),
+        "reccorded_at": datetime.utcnow().isoformat(),
+    }
+    result = sb.table("ward_state_snapshots").insert(snapshot_data).execute()
+    return result.data[0]["id"] if result.data else None
+
+
+def get_ward_state_history(ward_id: str, limit: int = 100) -> list[dict ]:
+    """
+    Load recent ward state snapshots for analytics/monitoring.
+    """
+    sb = get_supabase()
+    result = sb.table("ward_state_snapshots").select("*").eq(
+        "ward_id", ward_id
+    ).order("snapshot_at", desc=True).limit(limit).execute()
+    return result.data or []
 
 
 # ─────────────────────────────────────────────

@@ -34,6 +34,7 @@ from db.repositories import (
     save_alert,
     save_task,
     update_patient_status,
+    save_ward_state_history,
 )
 
 load_dotenv()
@@ -113,14 +114,14 @@ async def run_agent(req: RunRequest):
 
     try:
         history = _build_vitals(req.vitals_history)
+        # Load ward state from Supabase (live data)
+        ward_state_dict = get_ward_state("default_ward")
+        
         initial_state = AgentState(
             patient_id=req.patient_id,
             patient_name=req.patient_name,
             vitals_history=history,
-            ward=WardState(
-                total_patients=20, available_nurses=5,
-                available_doctors=2, pending_alerts=0, workload_score=0.5,
-            ),
+            ward=WardState(**ward_state_dict),
         )
         graph = build_graph()
         t0 = time.time()
@@ -130,6 +131,8 @@ async def run_agent(req: RunRequest):
         # Persist to Supabase (best-effort)
         try:
             run_id = await save_agent_run(req.patient_id, final, duration_ms)
+            # Save ward state snapshot for analytics
+            save_ward_state_history("default_ward", ward_state_dict)
         except Exception:
             run_id = None
 
@@ -160,14 +163,14 @@ async def _stream_agent(req: RunRequest) -> AsyncGenerator[str, None]:
         return
 
     history = _build_vitals(req.vitals_history)
+    # Load ward state from Supabase (live data)
+    ward_state_dict = get_ward_state("default_ward")
+    
     initial_state = AgentState(
         patient_id=req.patient_id,
         patient_name=req.patient_name,
         vitals_history=history,
-        ward=WardState(
-            total_patients=20, available_nurses=5,
-            available_doctors=2, pending_alerts=0, workload_score=0.5,
-        ),
+        ward=WardState(**ward_state_dict),
     )
 
     yield _sse("run_start", {
