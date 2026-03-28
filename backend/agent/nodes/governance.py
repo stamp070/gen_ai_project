@@ -1,7 +1,8 @@
 from agent.state import AgentState, GoalType
-## FIXX
 
-# Hospital policy rules
+# Hospital policy rules for goal approval
+# TODO: In production, load these from a policy database (PolicyDB)
+# to allow real-time updates without code redeploy
 POLICY = {
     "workload_gated": [GoalType.BALANCE_WORKLOAD],
     "always_allowed": [

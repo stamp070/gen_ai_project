@@ -19,7 +19,8 @@ Output ONLY valid JSON array of steps:
   {"step_id": "s1", "action": "tool_name", "params": {...}},
   ...
 ]
-Max 4 steps per plan. No treatment decisions."""
+
+No treatment decisions."""
 
 def plan_node(state: AgentState) -> AgentState:
     """Node 6: LLM creates multi-step plan for approved goal"""
@@ -50,10 +51,17 @@ def plan_node(state: AgentState) -> AgentState:
         raw = raw[7:-3].strip()
     elif raw.startswith("```"):
         raw = raw[3:-3].strip()
-        
-    steps_data = json.loads(raw)
-
-    state.plan_steps = [PlanStep(**s) for s in steps_data]
+    
+    # Parse JSON with error handling
+    try:
+        steps_data = json.loads(raw)
+        if not isinstance(steps_data, list):
+            steps_data = []
+        state.plan_steps = [PlanStep(**s) for s in steps_data]
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        state.log(f"[ERROR] LLM plan parsing failed: {e}. Creating empty plan.")
+        state.plan_steps = []
+    
     state.current_step_index = 0
     state.log(f"[PLAN] Created {len(state.plan_steps)}-step plan for goal: {state.current_goal}")
     for i, s in enumerate(state.plan_steps):

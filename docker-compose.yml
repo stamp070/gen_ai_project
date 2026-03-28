@@ -19,6 +19,7 @@ services:
     volumes:
       - ./frontend:/app
       - /app/node_modules  # กันไม่ให้เครื่องเราไปทับ node_modules ใน container
+    command: npm run dev
     environment:
       - NEXT_PUBLIC_API_URL=http://localhost:8080  # ชี้ไปที่ชื่อ service ของ fastapi
     depends_on:

@@ -68,9 +68,16 @@ def reeval_node(state: AgentState) -> AgentState:
     elif raw.startswith("```"):
         raw = raw[3:-3].strip()
     
-    data = json.loads(raw)
-    state.re_evaluated = data["re_evaluated"]
-    state.termination_reason = data["termination_reason"]
+    # Parse JSON with error handling
+    try:
+        data = json.loads(raw)
+        state.re_evaluated = data.get("re_evaluated", False)
+        state.termination_reason = data.get("termination_reason", "Evaluation completed")
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        state.log(f"[ERROR] LLM reeval parsing failed: {e}. Assuming cycle should end.")
+        state.re_evaluated = False
+        state.termination_reason = f"LLM parsing error: {str(e)}"
+    
     state.re_eval_count += 1
 
     state.log(f"[REEVAL] Re-evaluated: {state.re_evaluated} | Reason: {state.termination_reason}")

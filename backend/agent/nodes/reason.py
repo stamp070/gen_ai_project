@@ -42,13 +42,21 @@ def reason_node(state: AgentState) -> AgentState:
     elif raw.startswith("```"):
         raw = raw[3:-3].strip()
 
-    # Parse JSON response
-    data = json.loads(raw)
-    state.risk_level = RiskLevel(data["risk_level"])
-    state.risk_confidence = data["risk_confidence"]
-    state.reasoning_summary = data["reasoning_summary"]
-    state.hypotheses = data["hypotheses"]
-    state._suggested_goal = data.get("suggested_goal")  # temp attr for goal node
+    # Parse JSON response with error handling
+    try:
+        data = json.loads(raw)
+        state.risk_level = RiskLevel(data.get("risk_level", "moderate"))
+        state.risk_confidence = float(data.get("risk_confidence", 0.5))
+        state.reasoning_summary = data.get("reasoning_summary", "LLM analysis completed")
+        state.hypotheses = data.get("hypotheses", [])
+        state._suggested_goal = data.get("suggested_goal", "maintain_stability")
+    except (json.JSONDecodeError, ValueError, KeyError) as e:
+        state.log(f"[ERROR] LLM JSON parsing failed: {e}. Using safe defaults.")
+        state.risk_level = RiskLevel.MODERATE
+        state.risk_confidence = 0.5
+        state.reasoning_summary = "LLM parsing error, using defaults"
+        state.hypotheses = []
+        state._suggested_goal = "maintain_stability"
 
     state.log(f"[REASON] Risk={state.risk_level} ({state.risk_confidence:.0%}) — {state.reasoning_summary}")
     return state

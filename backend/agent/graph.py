@@ -1,5 +1,5 @@
 from langgraph.graph import StateGraph, END
-from agent.state import AgentState
+from agent.state import AgentState, RiskLevel
 from agent.nodes.observe import observe_node
 from agent.nodes.memory_node import memory_node
 from agent.nodes.reason import reason_node
@@ -10,10 +10,29 @@ from agent.nodes.execute import execute_node
 from agent.nodes.reeval import reeval_node
 
 def should_reeval(state: AgentState) -> str:
-    """Edge condition: loop or end"""
-    if state.re_evaluated == False or state.re_eval_count >= 2:
+    """
+    Edge condition: loop or end
+    Allow more re-evaluations for critical/high-risk cases
+    """
+    # Determine max re-evaluations based on risk level
+    if state.risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH]:
+        max_revals = 5  # Critical/high risk: allow up to 5 attempts
+    else:
+        max_revals = 2  # Low/moderate: 2 attempts
+    
+    # Check if we should continue looping
+    if not state.re_evaluated or state.re_eval_count >= max_revals:
+        # Before ending, escalate if critical after max re-evals
+        if state.re_eval_count >= max_revals and state.risk_level == RiskLevel.CRITICAL:
+            from tools.hospital_tools import execute_tool
+            state.log(f"[ESCALATION] Max re-evaluations ({max_revals}) reached for CRITICAL case")
+            execute_tool("escalate_to_supervisor", {
+                "patient_id": state.patient_id,
+                "reason": f"Patient {state.patient_id} remains CRITICAL after {max_revals} monitoring cycles. Immediate doctor intervention required.",
+                "severity": "critical"
+            })
         return "end"
-        
+    
     return "execute_more" 
 
 def build_graph() -> StateGraph:
