@@ -1,6 +1,6 @@
 import os
 from langchain_core.language_models import BaseChatModel
-from langchain_google_genai import ChatGoogleGenerativeAI
+from langchain_openai import ChatOpenAI
 from dotenv import load_dotenv
 
 load_dotenv()
@@ -11,10 +11,10 @@ def get_llm() -> BaseChatModel:
     Set env: LLM_PROVIDER = openai | claude | ollama
     """
 
-    return ChatGoogleGenerativeAI(
-        model=os.getenv("GEMINI_MODEL", "gemini-2.5-flash-lite"),
+    return ChatOpenAI(
+        model=os.getenv("LLM_MODEL", "gpt-4o-mini"),
         temperature=0,
-        google_api_key=os.getenv("GOOGLE_API_KEY"),
+        api_key=os.getenv("LLM_API_KEY"),
     )
 
     raise ValueError(f"ERROR: Unknown")
