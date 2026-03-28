@@ -10,6 +10,9 @@ from agent.state import AgentState, VitalSigns
 from config import get_llm
 from langchain_core.messages import HumanMessage, SystemMessage
 from datetime import datetime, timedelta
+from db.repositories import save_agent_memory, get_patient_by_code
+from agent.state import RiskLevel
+
 
 SYSTEM_PROMPT = """
 You are a Clinical Loop Controller for a hospital ward monitoring system.
@@ -42,7 +45,6 @@ def _simulate_new_vitals(state: AgentState) -> VitalSigns:
     - HIGH: slight improvement expected after intervention
     - Others: drift toward normal
     """
-    from agent.state import RiskLevel
     latest = state.vitals_history[-1]
 
     if state.risk_level == RiskLevel.CRITICAL:
@@ -94,7 +96,6 @@ def reeval_node(state: AgentState) -> AgentState:
 
     # ── 2. Save memory to Supabase ────────────────────────────────────────────
     try:
-        from db.repositories import save_agent_memory, get_patient_by_code
         patient = get_patient_by_code(state.patient_id)
         if patient:
             save_agent_memory(

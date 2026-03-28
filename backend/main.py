@@ -164,7 +164,7 @@ async def _stream_agent(req: RunRequest) -> AsyncGenerator[str, None]:
 
     history = _build_vitals(req.vitals_history)
     # Load ward state from Supabase (live data)
-    ward_state_dict = get_ward_state("default_ward")
+    ward_state_dict = get_ward_state("a1b2c3d4-e5f6-7890-abcd-1234567890ab")
     
     initial_state = AgentState(
         patient_id=req.patient_id,

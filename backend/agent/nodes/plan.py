@@ -36,7 +36,6 @@ def plan_node(state: AgentState) -> AgentState:
         "risk_level": state.risk_level,
         "current_status": state.status,
         "monitoring_interval": state.monitoring_interval_min,
-        "ward_workload": state.ward.workload_score if state.ward else None,
         "reasoning": state.reasoning_summary,
     }
 

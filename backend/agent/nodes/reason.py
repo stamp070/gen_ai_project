@@ -26,7 +26,6 @@ def reason_node(state: AgentState) -> AgentState:
         "lab_results": state.lab_results,
         "medical_notes": state.medical_notes,
         "current_status": state.status,
-        "ward_workload": state.ward.model_dump() if state.ward else {},
         "memory": state.memory_context,
     }
 

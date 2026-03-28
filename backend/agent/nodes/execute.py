@@ -53,6 +53,7 @@ def _apply_tool_effects(state: AgentState, action: str, params: dict):
     elif action == "set_patient_status":
         try:
             state.status = PatientStatus(params.get("new_status"))
+            print("Set New Status",state.status)
         except ValueError:
             pass
 
