@@ -1,10 +1,9 @@
 "use client";
 
-import { useState } from "react";
-import { mockPatients, mockWards, mockAlerts, mockTasks, mockWardState, mockStaff } from "@/lib/mock-data";
+import { useState, useEffect, useCallback } from "react";
 import { Patient, Alert, Task, Ward } from "@/lib/types";
 
-// ─── Helpers ──────────────────────────────────────────────────────────────────
+const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 function Badge({ children, color = "gray" }: { children: React.ReactNode; color?: "gray" | "blue" | "green" | "red" | "amber" }) {
   const s: Record<string, string> = {
@@ -17,17 +16,9 @@ function Badge({ children, color = "gray" }: { children: React.ReactNode; color?
   return <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${s[color]}`}>{children}</span>;
 }
 
-function riskColor(r: string) {
-  return r === "critical" ? "red" : r === "high" ? "red" : r === "moderate" ? "amber" : "green";
-}
-
-function priorityColor(p: string) {
-  return p === "critical" ? "red" : p === "urgent" ? "amber" : "gray";
-}
-
-function taskStatusColor(s: string) {
-  return s === "done" ? "green" : s === "in_progress" ? "blue" : s === "cancelled" ? "gray" : "amber";
-}
+function riskColor(r: string) { return r === "critical" ? "red" : r === "high" ? "red" : r === "moderate" ? "amber" : "green"; }
+function priorityColor(p: string) { return p === "critical" ? "red" : p === "urgent" ? "amber" : "gray"; }
+function taskStatusColor(s: string) { return s === "done" ? "green" : s === "in_progress" ? "blue" : s === "cancelled" ? "gray" : "amber"; }
 
 function timeAgo(iso: string) {
   const diff = Math.floor((Date.now() - new Date(iso).getTime()) / 60000);
@@ -35,8 +26,6 @@ function timeAgo(iso: string) {
   if (diff < 60) return `${diff}m ago`;
   return `${Math.floor(diff / 60)}h ago`;
 }
-
-// ─── Sub sections ─────────────────────────────────────────────────────────────
 
 function WardCards({ wards }: { wards: Ward[] }) {
   return (
@@ -51,16 +40,14 @@ function WardCards({ wards }: { wards: Ward[] }) {
                 <div className="text-[13px] font-medium text-slate-900 leading-snug">{w.name}</div>
                 <div className="text-[12px] text-slate-400 mt-0.5">Floor {w.floor}</div>
               </div>
-              <Badge color={pct >= 90 ? "red" : pct >= 70 ? "amber" : "green"}>
-                {pct}% full
-              </Badge>
+              <Badge color={pct >= 90 ? "red" : pct >= 70 ? "amber" : "green"}>{pct}% full</Badge>
             </div>
             <div className="flex items-baseline gap-1 mb-3">
               <span className="text-[28px] font-medium text-slate-900 leading-none">{w.current_patients}</span>
               <span className="text-[13px] text-slate-400">/ {w.capacity} beds</span>
             </div>
             <div className="h-1.5 bg-slate-100 rounded-full overflow-hidden">
-              <div className={`h-full rounded-full ${barColor} transition-all`} style={{ width: `${pct}%` }} />
+              <div className={`h-full rounded-full ${barColor}`} style={{ width: `${pct}%` }} />
             </div>
           </div>
         );
@@ -68,150 +55,124 @@ function WardCards({ wards }: { wards: Ward[] }) {
     </div>
   );
 }
-
-function PriorityQueue({ patients, onReorder }: { patients: Patient[]; onReorder: (id: string, dir: "up" | "down") => void }) {
-  const sorted = [...patients].sort((a, b) => (a.priority_rank ?? 5) - (b.priority_rank ?? 5));
-  return (
-    <div className="flex flex-col gap-2">
-      {sorted.map((p, idx) => (
-        <div key={p.id} className="flex items-center gap-3 bg-white border border-slate-200 rounded-xl px-4 py-3 group hover:border-slate-300 transition-colors">
-          {/* Rank */}
-          <div className={`w-7 h-7 rounded-lg flex items-center justify-center text-[12px] font-medium flex-shrink-0 ${
-            idx === 0 ? "bg-red-600 text-white" : idx === 1 ? "bg-amber-500 text-white" : "bg-slate-100 text-slate-500"
-          }`}>
-            {idx + 1}
-          </div>
-          {/* Info */}
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2">
-              <span className="text-[13px] font-medium text-slate-900">{p.name}</span>
-              <Badge color={riskColor(p.risk_level) as "red" | "amber" | "green"}>{p.risk_level}</Badge>
-            </div>
-            <div className="text-[11px] text-slate-400 mt-0.5">{p.room} · {p.diagnosis ?? "—"} · {p.monitoring_interval_min}min monitor</div>
-          </div>
-          {/* Controls */}
-          <div className="flex gap-1 opacity-0 group-hover:opacity-100 transition-opacity">
-            <button onClick={() => onReorder(p.id, "up")} disabled={idx === 0}
-              className="w-6 h-6 flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-20 transition-colors">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 8V2M2 5l3-3 3 3" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </button>
-            <button onClick={() => onReorder(p.id, "down")} disabled={idx === sorted.length - 1}
-              className="w-6 h-6 flex items-center justify-center rounded-md border border-slate-200 bg-white text-slate-400 hover:bg-slate-50 disabled:opacity-20 transition-colors">
-              <svg width="10" height="10" viewBox="0 0 10 10" fill="none"><path d="M5 2v6M8 5L5 8 2 5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" strokeLinejoin="round"/></svg>
-            </button>
-          </div>
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function AlertList({ alerts, onRead }: { alerts: Alert[]; onRead: (id: string) => void }) {
-  return (
-    <div className="flex flex-col gap-2">
-      {alerts.map((a) => (
-        <div key={a.id} className={`flex items-start gap-3 rounded-xl px-4 py-3 border transition-opacity ${a.is_read ? "opacity-50 bg-white border-slate-100" : "bg-white border-slate-200"}`}>
-          <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${a.priority === "critical" ? "bg-red-500" : a.priority === "urgent" ? "bg-amber-500" : "bg-slate-300"}`} />
-          <div className="flex-1 min-w-0">
-            <div className="flex items-center gap-2 flex-wrap">
-              <span className="text-[12px] font-medium text-slate-800">{a.patient_name}</span>
-              <Badge color={priorityColor(a.priority) as "red" | "amber" | "gray"}>{a.priority}</Badge>
-              <span className="text-[11px] text-slate-400 ml-auto">{timeAgo(a.created_at)}</span>
-            </div>
-            <p className="text-[12px] text-slate-500 mt-0.5 leading-relaxed">{a.message}</p>
-          </div>
-          {!a.is_read && (
-            <button onClick={() => onRead(a.id)} className="text-[11px] text-blue-600 hover:text-blue-800 flex-shrink-0 mt-0.5">Mark read</button>
-          )}
-        </div>
-      ))}
-    </div>
-  );
-}
-
-function TaskBoard({ tasks }: { tasks: Task[] }) {
-  const cols: { key: Task["status"]; label: string }[] = [
-    { key: "open", label: "Open" },
-    { key: "in_progress", label: "In Progress" },
-    { key: "done", label: "Done" },
-  ];
-  return (
-    <div className="grid grid-cols-3 gap-4">
-      {cols.map((col) => {
-        const colTasks = tasks.filter((t) => t.status === col.key);
-        return (
-          <div key={col.key} className="bg-slate-50 border border-slate-200 rounded-xl p-3">
-            <div className="flex items-center justify-between mb-3 px-1">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">{col.label}</span>
-              <span className="text-[11px] text-slate-400">{colTasks.length}</span>
-            </div>
-            <div className="flex flex-col gap-2">
-              {colTasks.length === 0 && <div className="py-6 text-center text-[12px] text-slate-300 italic">Empty</div>}
-              {colTasks.map((t) => (
-                <div key={t.id} className="bg-white border border-slate-200 rounded-lg p-3">
-                  <div className="flex items-start gap-2 mb-1.5">
-                    <Badge color={priorityColor(t.priority) as "red" | "amber" | "gray"}>{t.priority}</Badge>
-                    <span className="text-[11px] text-slate-400 ml-auto">{timeAgo(t.created_at)}</span>
-                  </div>
-                  <p className="text-[12px] text-slate-700 leading-snug mb-1.5">{t.description}</p>
-                  <div className="flex items-center gap-1.5">
-                    <div className="w-4 h-4 rounded-full bg-blue-50 flex items-center justify-center text-[8px] text-blue-700 font-medium">
-                      {t.patient_name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
-                    </div>
-                    <span className="text-[11px] text-slate-400">{t.patient_name}</span>
-                  </div>
-                </div>
-              ))}
-            </div>
-          </div>
-        );
-      })}
-    </div>
-  );
-}
-
-// ─── Main ─────────────────────────────────────────────────────────────────────
 
 type Tab = "overview" | "priority" | "alerts" | "tasks";
 
 export default function WardPage() {
   const [tab, setTab] = useState<Tab>("overview");
-  const [patients, setPatients] = useState<Patient[]>(mockPatients);
-  const [alerts, setAlerts] = useState<Alert[]>(mockAlerts);
-  const tasks = mockTasks;
-  const ward = mockWardState;
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [alerts, setAlerts] = useState<Alert[]>([]);
+  const [tasks, setTasks] = useState<Task[]>([]);
+  const [wards, setWards] = useState<Ward[]>([]);
+  const [wardState, setWardState] = useState({ total_patients: 0, available_nurses: 0, available_doctors: 0, pending_alerts: 0 });
+  const [loading, setLoading] = useState(true);
 
-  const reorder = (id: string, dir: "up" | "down") => {
-    setPatients((prev) => {
-      const sorted = [...prev].sort((a, b) => (a.priority_rank ?? 5) - (b.priority_rank ?? 5));
-      const idx = sorted.findIndex((p) => p.id === id);
-      const swapIdx = dir === "up" ? idx - 1 : idx + 1;
-      if (swapIdx < 0 || swapIdx >= sorted.length) return prev;
-      const a = sorted[idx].priority_rank ?? idx + 1;
-      const b = sorted[swapIdx].priority_rank ?? swapIdx + 1;
-      return prev.map((p) => {
-        if (p.id === id) return { ...p, priority_rank: b };
-        if (p.id === sorted[swapIdx].id) return { ...p, priority_rank: a };
-        return p;
-      });
-    });
+  const loadData = useCallback(async () => {
+    try {
+      const [pRes, aRes, tRes, wRes, wsRes] = await Promise.all([
+        fetch(`${API_BASE}/patients`),
+        fetch(`${API_BASE}/alerts`),
+        fetch(`${API_BASE}/tasks`),
+        fetch(`${API_BASE}/wards`),
+        fetch(`${API_BASE}/ward-state`),
+      ]);
+
+      if (pRes.ok) {
+        const data = await pRes.json();
+        setPatients(data.map((p: Record<string, unknown>) => {
+          const vitalsArr = Array.isArray(p.vitals) ? p.vitals as Record<string, number>[] : [];
+          const v = vitalsArr[0] ?? {};
+          return {
+            id: (p.patient_code as string) ?? (p.id as string),
+            name: p.name as string,
+            age: p.age as number,
+            room: (p.room as string) ?? "—",
+            diagnosis: p.diagnosis as string,
+            vitals: { heart_rate: v.heart_rate ?? 0, blood_pressure_sys: v.blood_pressure_sys ?? 0, blood_pressure_dia: v.blood_pressure_dia ?? 0, spo2: v.spo2 ?? 0, temperature: v.temperature ?? 37, respiratory_rate: v.respiratory_rate ?? 16 },
+            risk_level: p.risk_level ?? "low",
+            status: p.status ?? "stable",
+            priority_rank: p.priority_rank,
+            monitoring_interval_min: p.monitoring_interval_min,
+            last_updated: "Just now",
+          };
+        }));
+      }
+
+      if (aRes.ok) {
+        const data = await aRes.json();
+        setAlerts(data.map((a: Record<string, unknown>) => ({
+          id: a.id,
+          patient_id: a.patient_id,
+          patient_name: (a.patients as Record<string, string>)?.name ?? "Unknown",
+          alert_type: a.alert_type,
+          message: a.message,
+          priority: a.priority ?? "normal",
+          is_read: a.is_read,
+          created_at: a.created_at,
+        })));
+      }
+
+      if (tRes.ok) {
+        const data = await tRes.json();
+        setTasks(data.map((t: Record<string, unknown>) => ({
+          id: t.id,
+          patient_id: t.patient_id,
+          patient_name: (t.patient_name as string) ?? "Unknown",
+          task_type: t.task_type,
+          description: t.description,
+          priority: t.priority ?? "normal",
+          assigned_to: t.assigned_to,
+          status: t.status ?? "open",
+          created_at: t.created_at,
+        })));
+      }
+
+      if (wRes.ok) {
+        const data = await wRes.json();
+        setWards(data.map((w: Record<string, unknown>) => ({
+          id: w.id as string,
+          name: w.name as string,
+          floor: w.floor as number,
+          capacity: w.capacity as number,
+          current_patients: w.current_patients as number,
+        })));
+      }
+
+      if (wsRes.ok) setWardState(await wsRes.json());
+    } catch { /* silently fail */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
+
+  const markRead = async (id: string) => {
+    await fetch(`${API_BASE}/alerts/${id}/read`, { method: "PATCH" });
+    setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, is_read: true } : a));
   };
 
-  const markRead = (id: string) => setAlerts((prev) => prev.map((a) => a.id === id ? { ...a, is_read: true } : a));
+  const updateTaskStatus = async (id: string, status: string) => {
+    await fetch(`${API_BASE}/tasks/${id}/status?status=${status}`, { method: "PATCH" });
+    setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status: t.status } as Task : t));
+    loadData();
+  };
+
+  const sortedPatients = [...patients].sort((a, b) => (a.priority_rank ?? 99) - (b.priority_rank ?? 99));
   const unreadCount = alerts.filter((a) => !a.is_read).length;
+  const openTasks = tasks.filter((t) => t.status === "open").length;
 
   const TABS: { key: Tab; label: string; count?: number }[] = [
     { key: "overview", label: "Overview" },
     { key: "priority", label: "Priority Queue", count: patients.length },
     { key: "alerts",   label: "Alerts",         count: unreadCount || undefined },
-    { key: "tasks",    label: "Tasks",           count: tasks.filter(t => t.status === "open").length },
+    { key: "tasks",    label: "Tasks",           count: openTasks || undefined },
   ];
+
+  if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><p className="text-slate-400 text-[14px]">Loading ward data...</p></div>;
 
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-5">
       <div className="max-w-[1160px] mx-auto flex flex-col gap-4">
 
-        {/* Header */}
         <header className="bg-white border border-slate-200 rounded-xl px-5 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-blue-700 rounded-lg flex items-center justify-center text-blue-50 text-[15px] font-medium">B</div>
@@ -220,13 +181,12 @@ export default function WardPage() {
               <div className="text-xs text-slate-400 mt-1">Priority, alerts, and task board</div>
             </div>
           </div>
-          {/* Quick stats */}
           <div className="flex items-center gap-5 text-right">
             {[
-              { label: "Patients", val: ward.total_patients },
-              { label: "Nurses", val: ward.available_nurses },
-              { label: "Doctors", val: ward.available_doctors },
-              { label: "Alerts", val: unreadCount, warn: true },
+              { label: "Patients", val: wardState.total_patients },
+              { label: "Nurses",   val: wardState.available_nurses },
+              { label: "Doctors",  val: wardState.available_doctors },
+              { label: "Alerts",   val: unreadCount, warn: true },
             ].map((s) => (
               <div key={s.label}>
                 <div className={`text-[18px] font-medium leading-none ${s.warn && unreadCount > 0 ? "text-red-600" : "text-slate-900"}`}>{s.val}</div>
@@ -236,7 +196,6 @@ export default function WardPage() {
           </div>
         </header>
 
-        {/* Tabs */}
         <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-2">
           {TABS.map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)}
@@ -249,42 +208,31 @@ export default function WardPage() {
           ))}
         </div>
 
-        {/* Content */}
         {tab === "overview" && (
           <div className="flex flex-col gap-4">
-            <WardCards wards={mockWards} />
-            {/* Staff availability */}
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-              <div className="px-5 py-3 border-b border-slate-200">
-                <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Staff on duty</span>
-              </div>
-              <div className="divide-y divide-slate-100">
-                {mockStaff.map((s) => (
-                  <div key={s.id} className="flex items-center gap-3 px-5 py-3">
-                    <div className="w-8 h-8 rounded-full bg-blue-50 flex items-center justify-center text-blue-700 text-[11px] font-medium flex-shrink-0">
-                      {s.name.split(" ").map((n) => n[0]).join("").slice(0, 2)}
-                    </div>
-                    <div className="flex-1">
-                      <div className="text-[13px] font-medium text-slate-800">{s.name}</div>
-                      <div className="text-[11px] text-slate-400">{s.ward_name} · {s.patients_assigned} patients</div>
-                    </div>
-                    <Badge color={s.role === "supervisor" ? "blue" : "gray"}>{s.role}</Badge>
-                    <div className={`w-2 h-2 rounded-full ${s.is_available ? "bg-green-500" : "bg-slate-300"}`} title={s.is_available ? "Available" : "Busy"} />
-                  </div>
-                ))}
-              </div>
-            </div>
+            {wards.length > 0 ? <WardCards wards={wards} /> : <p className="text-slate-400 text-[13px] text-center py-4">No ward data available</p>}
           </div>
         )}
 
         {tab === "priority" && (
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
-            <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Patient priority queue</span>
-              <span className="text-[11px] text-slate-400">Drag or use arrows to reorder</span>
+            <div className="px-5 py-3 border-b border-slate-200">
+              <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Priority queue — {sortedPatients.length} patients</span>
             </div>
-            <div className="p-4">
-              <PriorityQueue patients={patients} onReorder={reorder} />
+            <div className="divide-y divide-slate-100">
+              {sortedPatients.map((p, i) => (
+                <div key={p.id} className="flex items-center gap-4 px-5 py-3.5">
+                  <div className="w-6 h-6 rounded-full bg-slate-100 flex items-center justify-center text-[11px] font-medium text-slate-500 flex-shrink-0">{i + 1}</div>
+                  <div className="flex-1 min-w-0">
+                    <div className="text-[13px] font-medium text-slate-900">{p.name}</div>
+                    <div className="text-[11px] text-slate-400">{p.id} · {p.room} · {p.diagnosis ?? "—"}</div>
+                  </div>
+                  <div className="flex gap-2">
+                    <Badge color={riskColor(p.risk_level) as "red" | "amber" | "green"}>{p.risk_level}</Badge>
+                    {p.monitoring_interval_min && <Badge color="gray">Every {p.monitoring_interval_min}m</Badge>}
+                  </div>
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -293,10 +241,26 @@ export default function WardPage() {
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
               <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Alerts</span>
-              {unreadCount > 0 && <Badge color="red">{unreadCount} unread</Badge>}
+              {unreadCount > 0 && <span className="text-[11px] text-slate-500">{unreadCount} unread</span>}
             </div>
-            <div className="p-4">
-              <AlertList alerts={alerts} onRead={markRead} />
+            <div className="divide-y divide-slate-100">
+              {alerts.length === 0 && <p className="text-center text-slate-400 text-[13px] py-8">No alerts</p>}
+              {alerts.map((a) => (
+                <div key={a.id} className={`flex items-start gap-4 px-5 py-3.5 ${a.is_read ? "opacity-50" : ""}`}>
+                  <div className={`w-2 h-2 rounded-full mt-1.5 flex-shrink-0 ${a.priority === "critical" ? "bg-red-500" : a.priority === "urgent" ? "bg-amber-500" : "bg-slate-300"}`} />
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[13px] font-medium text-slate-900">{a.patient_name}</span>
+                      <Badge color={priorityColor(a.priority) as "red" | "amber" | "gray"}>{a.priority}</Badge>
+                    </div>
+                    <div className="text-[12px] text-slate-600">{a.message}</div>
+                    <div className="text-[11px] text-slate-400 mt-1">{timeAgo(a.created_at)}</div>
+                  </div>
+                  {!a.is_read && (
+                    <button onClick={() => markRead(a.id)} className="text-[11px] text-blue-600 hover:text-blue-800 flex-shrink-0 mt-0.5">Mark read</button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}
@@ -304,10 +268,29 @@ export default function WardPage() {
         {tab === "tasks" && (
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-200">
-              <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Task board</span>
+              <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Tasks — {tasks.length} total</span>
             </div>
-            <div className="p-4">
-              <TaskBoard tasks={tasks} />
+            <div className="divide-y divide-slate-100">
+              {tasks.length === 0 && <p className="text-center text-slate-400 text-[13px] py-8">No tasks</p>}
+              {tasks.map((t) => (
+                <div key={t.id} className="flex items-start gap-4 px-5 py-3.5">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2 mb-0.5">
+                      <span className="text-[13px] font-medium text-slate-900">{t.patient_name}</span>
+                      <Badge color={priorityColor(t.priority) as "red" | "amber" | "gray"}>{t.priority}</Badge>
+                      <Badge color={taskStatusColor(t.status) as "green" | "blue" | "gray" | "amber"}>{t.status.replace("_", " ")}</Badge>
+                    </div>
+                    <div className="text-[12px] text-slate-600">{t.description}</div>
+                    <div className="text-[11px] text-slate-400 mt-1">{t.task_type} · {timeAgo(t.created_at)}</div>
+                  </div>
+                  {t.status === "open" && (
+                    <button onClick={() => updateTaskStatus(t.id, "in_progress")} className="text-[11px] text-blue-600 hover:text-blue-800 flex-shrink-0 mt-0.5">Start</button>
+                  )}
+                  {t.status === "in_progress" && (
+                    <button onClick={() => updateTaskStatus(t.id, "done")} className="text-[11px] text-green-600 hover:text-green-800 flex-shrink-0 mt-0.5">Done</button>
+                  )}
+                </div>
+              ))}
             </div>
           </div>
         )}

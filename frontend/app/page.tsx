@@ -1,10 +1,7 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useState, useRef, useEffect, useCallback } from "react";
 import { Patient, WardState, RiskLevel } from "@/lib/types";
-import { mockPatients, mockWardState } from "@/lib/mock-data";
-
-// ─── Constants ────────────────────────────────────────────────────────────────
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -27,8 +24,6 @@ const NODE_MSGS: Record<NodeId, string> = {
   reeval:     "Re-evaluating state post-action, looping...",
 };
 
-// ─── Types ────────────────────────────────────────────────────────────────────
-
 type AgentStatus = "standby" | "active" | "stopped" | "complete" | "error";
 interface LogEntry { node: string; msg: string; ts: string; }
 interface StreamPayload {
@@ -40,8 +35,6 @@ interface StreamPayload {
   final_risk?: RiskLevel; final_status?: string; duration_ms?: number;
   message?: string; patient_id?: string;
 }
-
-// ─── Sub-components ───────────────────────────────────────────────────────────
 
 function Badge({ children, color = "gray" }: { children: React.ReactNode; color?: "gray" | "blue" | "green" | "red" | "amber" }) {
   const styles: Record<string, string> = {
@@ -83,13 +76,38 @@ function WardBar({ ward }: { ward: WardState }) {
   );
 }
 
-// ─── Main Component ───────────────────────────────────────────────────────────
+function mapApiPatient(p: Record<string, unknown>): Patient {
+  const vitalsArr = Array.isArray(p.vitals) ? p.vitals as Record<string, number>[] : [];
+  const v = vitalsArr[0] ?? {};
+  return {
+    id: (p.patient_code as string) ?? (p.id as string),
+    name: p.name as string,
+    age: p.age as number,
+    room: (p.room as string) ?? "—",
+    diagnosis: p.diagnosis as string | undefined,
+    admission_date: p.admission_date as string | undefined,
+    vitals: {
+      heart_rate: v.heart_rate ?? 0,
+      blood_pressure_sys: v.blood_pressure_sys ?? 0,
+      blood_pressure_dia: v.blood_pressure_dia ?? 0,
+      spo2: v.spo2 ?? 0,
+      temperature: v.temperature ?? 37.0,
+      respiratory_rate: v.respiratory_rate ?? 16,
+    },
+    risk_level: (p.risk_level as RiskLevel) ?? "low",
+    status: (p.status as Patient["status"]) ?? "stable",
+    priority_rank: p.priority_rank as number | undefined,
+    monitoring_interval_min: p.monitoring_interval_min as number | undefined,
+    last_updated: "Just now",
+  };
+}
 
 export default function DoctorBlythe() {
-  const patients = mockPatients;
-  const ward = mockWardState;
+  const [patients, setPatients] = useState<Patient[]>([]);
+  const [ward, setWard] = useState<WardState>({ total_patients: 0, available_nurses: 0, available_doctors: 0, pending_alerts: 0 });
+  const [loading, setLoading] = useState(true);
+  const [selectedId, setSelectedId] = useState<string>("");
 
-  const [selectedId, setSelectedId] = useState<string>(patients[0].id);
   const [isRunning, setIsRunning] = useState(false);
   const [activeNode, setActiveNode] = useState<NodeId | null>(null);
   const [doneNodes, setDoneNodes] = useState<NodeId[]>([]);
@@ -106,11 +124,30 @@ export default function DoctorBlythe() {
 
   const logsRef = useRef<HTMLDivElement>(null);
   const abortRef = useRef<AbortController | null>(null);
-  const patient = patients.find((p) => p.id === selectedId)!;
 
+  const loadData = useCallback(async () => {
+    try {
+      const [pRes, wRes] = await Promise.all([
+        fetch(`${API_BASE}/patients`),
+        fetch(`${API_BASE}/ward-state`),
+      ]);
+      if (pRes.ok) {
+        const data = await pRes.json();
+        const mapped = data.map(mapApiPatient);
+        setPatients(mapped);
+        setSelectedId((prev) => prev || (mapped[0]?.id ?? ""));
+      }
+      if (wRes.ok) setWard(await wRes.json());
+    } catch { /* silently fail */ }
+    finally { setLoading(false); }
+  }, []);
+
+  useEffect(() => { loadData(); }, [loadData]);
   useEffect(() => {
     if (logsRef.current) logsRef.current.scrollTop = logsRef.current.scrollHeight;
   }, [logs]);
+
+  const patient = patients.find((p) => p.id === selectedId) ?? patients[0];
 
   const pushLog = (node: string, msg: string) => {
     const ts = new Date().toLocaleTimeString("th-TH", { hour: "2-digit", minute: "2-digit", second: "2-digit" });
@@ -143,10 +180,7 @@ export default function DoctorBlythe() {
   };
 
   const handleSSEEvent = (eventType: string, payload: StreamPayload) => {
-    if (eventType === "run_start") {
-      pushLog("SYS", `Starting analysis for ${payload.patient_id ?? "patient"}...`);
-      return;
-    }
+    if (eventType === "run_start") { pushLog("SYS", `Starting analysis for ${payload.patient_id ?? "patient"}...`); return; }
     if (eventType === "node_update" && payload.node) {
       const node = payload.node as NodeId;
       setActiveNode(node);
@@ -166,20 +200,16 @@ export default function DoctorBlythe() {
       if (payload.final_risk) setRisk(payload.final_risk);
       if (payload.termination_reason) setTermReason(payload.termination_reason);
       pushLog("SYS", `Complete — ${payload.termination_reason ?? "done"} (${payload.duration_ms ?? 0}ms)`);
+      loadData();
     }
-    if (eventType === "error") {
-      pushLog("ERROR", payload.message ?? "Unknown error");
-      setIsRunning(false); setAgentStatus("error"); setActiveNode(null);
-    }
+    if (eventType === "error") { pushLog("ERROR", payload.message ?? "Unknown error"); setIsRunning(false); setAgentStatus("error"); setActiveNode(null); }
   };
 
   const startAgent = () => {
-    resetState();
-    setIsRunning(true);
-    setAgentStatus("active");
+    if (!patient) return;
+    resetState(); setIsRunning(true); setAgentStatus("active");
     const ctrl = new AbortController();
     abortRef.current = ctrl;
-
     (async () => {
       try {
         const resp = await fetch(`${API_BASE}/run/stream`, {
@@ -210,19 +240,12 @@ export default function DoctorBlythe() {
           }
         }
       } catch (err: unknown) {
-        if ((err as { name?: string }).name !== "AbortError") {
-          pushLog("ERROR", String(err)); setAgentStatus("error"); setIsRunning(false);
-        }
+        if ((err as { name?: string }).name !== "AbortError") { pushLog("ERROR", String(err)); setAgentStatus("error"); setIsRunning(false); }
       }
     })();
   };
 
-  const stopAgent = () => {
-    abortRef.current?.abort();
-    setIsRunning(false); setActiveNode(null); setAgentStatus("stopped");
-  };
-
-  // ─── Derived UI ───────────────────────────────────────────────────────────
+  const stopAgent = () => { abortRef.current?.abort(); setIsRunning(false); setActiveNode(null); setAgentStatus("stopped"); };
 
   const agentBadge = { standby: <Badge color="gray">Standby</Badge>, active: <Badge color="blue">Agent active</Badge>, stopped: <Badge color="gray">Stopped</Badge>, complete: <Badge color="green">Complete</Badge>, error: <Badge color="red">Error</Badge> }[agentStatus];
   const riskColor = risk === "critical" ? "text-red-700" : risk === "high" ? "text-red-500" : risk === "moderate" ? "text-amber-600" : risk === "low" ? "text-green-700" : "text-slate-300";
@@ -231,11 +254,12 @@ export default function DoctorBlythe() {
   const isWarn    = (p: Patient) => ["critical", "high"].includes(p.risk_level);
   const barColor  = risk === "critical" || risk === "high" ? "bg-red-500" : risk === "moderate" ? "bg-amber-500" : "bg-green-500";
 
+  if (loading) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><p className="text-slate-400 text-[14px]">Loading ward data...</p></div>;
+  if (!patient) return <div className="min-h-screen bg-slate-50 flex items-center justify-center"><p className="text-slate-400 text-[14px]">No patients found. Check backend connection.</p></div>;
+
   return (
     <div className="min-h-screen bg-slate-50 font-sans p-5">
       <div className="max-w-[1160px] mx-auto flex flex-col gap-4">
-
-        {/* Header */}
         <header className="bg-white border border-slate-200 rounded-xl px-5 py-3.5 flex items-center justify-between">
           <div className="flex items-center gap-3">
             <div className="w-9 h-9 bg-blue-700 rounded-lg flex items-center justify-center text-blue-50 text-[15px] font-medium">B</div>
@@ -254,10 +278,8 @@ export default function DoctorBlythe() {
           </div>
         </header>
 
-        {/* Ward Bar */}
         <WardBar ward={ward} />
 
-        {/* Vitals */}
         <section className="grid grid-cols-5 gap-3">
           <VitalCard label="Heart rate"     value={patient.vitals.heart_rate}   unit="bpm"  warn={isWarn(patient)} />
           <VitalCard label="Blood pressure" value={`${patient.vitals.blood_pressure_sys}/${patient.vitals.blood_pressure_dia}`} unit="mmHg" warn={isWarn(patient)} />
@@ -266,10 +288,7 @@ export default function DoctorBlythe() {
           <VitalCard label="Resp. rate"     value={patient.vitals.respiratory_rate} unit="/min" warn={patient.vitals.respiratory_rate > 20} />
         </section>
 
-        {/* Main Grid */}
         <div className="grid grid-cols-[1fr_300px] gap-4">
-
-          {/* Left: Pipeline + Terminal */}
           <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
             <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
               <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Thought process pipeline</span>
@@ -279,7 +298,6 @@ export default function DoctorBlythe() {
               </div>
             </div>
             <div className="p-5">
-              {/* Steps */}
               <div className="flex items-start relative mb-6">
                 <div className="absolute top-3 left-0 w-full h-px bg-slate-100 z-0" />
                 {NODE_IDS.map((id) => {
@@ -295,8 +313,6 @@ export default function DoctorBlythe() {
                   );
                 })}
               </div>
-
-              {/* Terminal */}
               <div className="bg-[#0C1C2C] rounded-lg p-4 min-h-[220px]">
                 <div className="flex items-center gap-1.5 mb-3">
                   <div className="w-2.5 h-2.5 rounded-full bg-red-500" /><div className="w-2.5 h-2.5 rounded-full bg-amber-500" /><div className="w-2.5 h-2.5 rounded-full bg-green-500" />
@@ -314,8 +330,6 @@ export default function DoctorBlythe() {
                     ))}
                 </div>
               </div>
-
-              {/* Reasoning */}
               {reasoning && (
                 <div className="mt-4 bg-slate-50 border border-slate-100 rounded-lg p-3">
                   <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1">Reasoning summary</div>
@@ -325,10 +339,7 @@ export default function DoctorBlythe() {
             </div>
           </div>
 
-          {/* Right column */}
           <div className="flex flex-col gap-3">
-
-            {/* Patient card */}
             <div className="bg-white border border-slate-200 rounded-xl p-4">
               <div className="flex items-center gap-3 mb-3">
                 <div className="w-10 h-10 rounded-full bg-blue-50 flex items-center justify-center text-blue-700 text-[13px] font-medium flex-shrink-0">
@@ -342,7 +353,6 @@ export default function DoctorBlythe() {
               <Badge color={isWarn(patient) ? "red" : "green"}>{patient.status.replace("_", " ")}</Badge>
             </div>
 
-            {/* Goal card */}
             {(goal || goalApproved != null) && (
               <div className="bg-white border border-slate-200 rounded-xl p-4">
                 <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">Current goal</div>
@@ -351,7 +361,6 @@ export default function DoctorBlythe() {
               </div>
             )}
 
-            {/* Risk card */}
             <div className={`rounded-xl border-2 p-4 transition-all duration-300 ${riskBg}`}>
               <div className="text-[10px] uppercase tracking-wider text-slate-400 mb-1.5">Risk assessment</div>
               <div className={`text-[26px] font-medium leading-none ${riskColor}`}>{riskLabel}</div>
@@ -366,7 +375,6 @@ export default function DoctorBlythe() {
               {termReason && <div className="text-[11px] text-slate-400 mt-2">{termReason}</div>}
             </div>
 
-            {/* Plan card */}
             <div className="bg-white border border-slate-200 rounded-xl overflow-hidden flex-1">
               <div className="px-4 py-3 border-b border-slate-200">
                 <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Recommended actions</span>
@@ -393,7 +401,6 @@ export default function DoctorBlythe() {
                 </>
               )}
             </div>
-
           </div>
         </div>
       </div>

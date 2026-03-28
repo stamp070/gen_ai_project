@@ -323,6 +323,124 @@ async def get_alerts(unread_only: bool = False):
 
 
 # ─────────────────────────────────────────────
+# /staff
+# ─────────────────────────────────────────────
+
+@app.get("/staff")
+async def list_staff():
+    """Returns all staff members with ward info."""
+    try:
+        sb = get_supabase()
+        result = sb.table("staff").select(
+            "*, wards(name)"
+        ).order("role").execute()
+        # Flatten ward name
+        data = []
+        for row in result.data:
+            ward = row.pop("wards", None)
+            row["ward_name"] = ward["name"] if ward else None
+            data.append(row)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/staff/{staff_id}/availability")
+async def update_staff_availability(staff_id: str, available: bool):
+    """Toggle staff availability."""
+    try:
+        sb = get_supabase()
+        sb.table("staff").update({"is_available": available}).eq("id", staff_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────
+# /wards
+# ─────────────────────────────────────────────
+
+@app.get("/wards")
+async def list_wards():
+    """Returns all wards with live occupancy."""
+    try:
+        sb = get_supabase()
+        wards = sb.table("wards").select("*").execute()
+        result = []
+        for w in wards.data:
+            count = sb.table("patients").select("id", count="exact").eq("ward_id", w["id"]).eq("is_active", True).execute()
+            result.append({
+                **w,
+                "current_patients": count.count or 0,
+            })
+        return result
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────
+# /ward-state
+# ─────────────────────────────────────────────
+
+@app.get("/ward-state")
+async def get_ward_state_endpoint(ward_id: str = "default_ward"):
+    """Returns live ward state (patients, staff, alerts counts)."""
+    try:
+        data = get_ward_state(ward_id)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────
+# /tasks
+# ─────────────────────────────────────────────
+
+@app.get("/tasks")
+async def list_tasks(status: Optional[str] = None):
+    """Returns tasks, optionally filtered by status (open/in_progress/done/cancelled)."""
+    try:
+        sb = get_supabase()
+        q = sb.table("tasks").select(
+            "*, patients(name, patient_code)"
+        ).order("created_at", desc=True).limit(100)
+        if status:
+            q = q.eq("status", status)
+        result = q.execute()
+        data = []
+        for row in result.data:
+            patient = row.pop("patients", None)
+            row["patient_name"] = patient["name"] if patient else "Unknown"
+            row["patient_code"] = patient["patient_code"] if patient else None
+            data.append(row)
+        return data
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/tasks/{task_id}/status")
+async def update_task_status(task_id: str, status: str):
+    """Update task status (open/in_progress/done/cancelled)."""
+    try:
+        sb = get_supabase()
+        sb.table("tasks").update({"status": status}).eq("id", task_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/alerts/{alert_id}/read")
+async def mark_alert_read(alert_id: str):
+    """Mark an alert as read."""
+    try:
+        sb = get_supabase()
+        sb.table("alerts").update({"is_read": True}).eq("id", alert_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+# ─────────────────────────────────────────────
 # Health
 # ─────────────────────────────────────────────
 
