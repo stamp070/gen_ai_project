@@ -58,8 +58,8 @@ class VitalInput(BaseModel):
     blood_pressure_sys: float
     blood_pressure_dia: float
     spo2: float
-    temperature: float = 37.0
-    respiratory_rate: float = 16.0
+    temperature: float
+    respiratory_rate: float
 
 class RunRequest(BaseModel):
     patient_id: str          # patient_code e.g. "P-001"
@@ -425,6 +425,20 @@ async def update_task_status(task_id: str, status: str):
     try:
         sb = get_supabase()
         sb.table("tasks").update({"status": status}).eq("id", task_id).execute()
+        return {"ok": True}
+    except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.patch("/tasks/{task_id}/assign")
+async def assign_task(task_id: str, staff_id: str):
+    """Assign a task to a staff member and set status to in_progress."""
+    try:
+        sb = get_supabase()
+        sb.table("tasks").update({
+            "assigned_to": staff_id,
+            "status": "in_progress",
+        }).eq("id", task_id).execute()
         return {"ok": True}
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))

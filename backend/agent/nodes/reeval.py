@@ -1,88 +1,57 @@
 """
-reeval.py — Re-evaluate after each execute cycle.
-Now persists simulated vitals to Supabase so the frontend chart updates in real-time.
+reeval.py — Plan Review Gate.
+LLM reviews the proposed plan and decides:
+  - approved  → proceed to execute
+  - rejected  → loop back to reason for re-analysis
 """
 import json
-import random
-from agent.state import AgentState, VitalSigns
+from agent.state import AgentState, VitalSigns, RiskLevel
 from config import get_llm
 from langchain_core.messages import HumanMessage, SystemMessage
-from datetime import datetime, timedelta
+from datetime import timedelta
 from db.repositories import save_agent_memory, get_patient_by_code
 from tools.hospital_tools import insert_vitals
-from agent.state import RiskLevel
 
 
 SYSTEM_PROMPT = """
-You are a Clinical Loop Controller for a hospital ward monitoring system.
-Determine if the monitoring cycle has reached a safe conclusion or further action is needed.
+You are a Clinical Plan Reviewer for a hospital ward monitoring system.
+Your job is to review the proposed intervention plan and decide if it is appropriate.
+
+Guidelines for approval:
+- APPROVE if the plan reasonably addresses the patient's current risk level.
+- APPROVE if the patient is stable/low risk and the plan includes basic monitoring + notification.
+- APPROVE plans that are proportionate — do NOT demand maximum intervention for stable patients.
+- For CRITICAL/HIGH risk: ensure urgent actions like escalation, labs, or ICU transfer are included.
+- For MODERATE risk: standard monitoring adjustments and notifications are sufficient.
+- For LOW risk: basic monitoring is perfectly acceptable.
+
+Only REJECT if:
+- The plan clearly misses something dangerous (e.g., no escalation for a crashing patient).
+- The actions could cause harm.
+- The risk level and actions are wildly mismatched (e.g., "low priority" for a septic shock patient).
 
 Output ONLY valid JSON:
 {
-  "re_evaluated": false,
-  "termination_reason": "State clearly why we stop or continue"
+  "approved": true | false,
+  "reason": "Explain clearly why you approve or reject the plan"
 }
 """
 
 
-def _simulate_new_vitals(state: AgentState) -> VitalSigns:
-    """
-    Simulate one new vitals reading based on current risk trend.
-    CRITICAL: may worsen or slightly improve (post-intervention uncertainty)
-    HIGH: likely improving after intervention
-    Others: stable drift
-    """
-    latest = state.vitals_history[-1]
-
-    if state.risk_level == RiskLevel.CRITICAL:
-        delta_hr = random.uniform(-8, 5)
-        delta_bp_sys = random.uniform(-5, 8)
-        delta_spo2 = random.uniform(-0.5, 1.5)
-    elif state.risk_level == RiskLevel.HIGH:
-        delta_hr = random.uniform(-10, 2)
-        delta_bp_sys = random.uniform(2, 10)
-        delta_spo2 = random.uniform(0, 1.5)
-    else:
-        delta_hr = random.uniform(-3, 3)
-        delta_bp_sys = random.uniform(-3, 3)
-        delta_spo2 = random.uniform(-0.2, 0.5)
-
-    new_hr = max(40, min(200, latest.heart_rate + delta_hr))
-    new_sys = max(70, min(200, latest.blood_pressure_sys + delta_bp_sys))
-    new_dia = max(40, min(120, latest.blood_pressure_dia + random.uniform(-2, 2)))
-    new_spo2 = max(85, min(100, latest.spo2 + delta_spo2))
-    new_temp = round(latest.temperature + random.uniform(-0.1, 0.1), 1)
-    new_rr = round(latest.respiratory_rate + random.uniform(-1, 1), 1)
-
-    return VitalSigns(
-        heart_rate=round(new_hr, 1),
-        blood_pressure_sys=round(new_sys, 1),
-        blood_pressure_dia=round(new_dia, 1),
-        spo2=round(new_spo2, 2),
-        temperature=new_temp,
-        respiratory_rate=new_rr,
-        timestamp=latest.timestamp + timedelta(minutes=state.monitoring_interval_min),
-    )
-
-
 def reeval_node(state: AgentState) -> AgentState:
-    # ── 1. Simulate new vitals ────────────────────────────────────────────────
-    new_vitals = _simulate_new_vitals(state)
-    state.vitals_history.append(new_vitals)
-    state.log(
-        f"[REEVAL] 📡 New vitals: HR={new_vitals.heart_rate}, "
-        f"BP={new_vitals.blood_pressure_sys}/{new_vitals.blood_pressure_dia}, "
-        f"SpO2={new_vitals.spo2}"
-    )
+    print(f"[REEVAL] 📡 reeval_node CALLED | re_eval_count={state.re_eval_count} | plan_steps={len(state.plan_steps)}")
 
-    # ── 2. Persist new vitals to DB ───────────────────────────────────────────
-    try:
-        insert_vitals(state.patient_id, new_vitals.model_dump(mode="json"))
-        state.log(f"[REEVAL] 💾 Vitals saved to DB")
-    except Exception as e:
-        state.log(f"[REEVAL] ⚠️ Vitals DB write failed: {e}")
+    # ── 1. Save latest vitals to DB (first loop only) ─────
+    latest_vital = state.vitals_history[-5]
 
-    # ── 3. Save agent memory to DB ────────────────────────────────────────────
+    if state.re_eval_count == 0:
+        try:
+            insert_vitals(state.patient_id, latest_vital.model_dump(mode="json"))
+            state.log(f"[REEVAL] 💾 Vitals saved to DB")
+        except Exception as e:
+            state.log(f"[REEVAL] ⚠️ Vitals DB write failed: {e}")
+
+    # ── 2. Save agent memory snapshot ─────
     try:
         patient = get_patient_by_code(state.patient_id)
         if patient:
@@ -94,51 +63,72 @@ def reeval_node(state: AgentState) -> AgentState:
                     "risk_level": state.risk_level,
                     "status": state.status,
                     "action_log": state.action_log[-5:],
-                    "latest_vitals": new_vitals.model_dump(mode="json"),
+                    "latest_vitals": latest_vital.model_dump(mode="json"),
                 },
             )
     except Exception as e:
         state.log(f"[REEVAL] ⚠️ Memory save failed: {e}")
 
-    # ── 4. LLM decides whether to continue ───────────────────────────────────
+    # ── 3. LLM reviews the plan ─────
     llm = get_llm()
     context = {
-        "vitals_last_3": [v.model_dump() for v in state.vitals_history[-3:]],
+        "vitals_history": [v.model_dump() for v in state.vitals_history],
         "risk_level": state.risk_level,
         "risk_confidence": state.risk_confidence,
         "current_goal": state.current_goal,
         "goal_approved": state.goal_approved,
-        "executed_steps": [
-            {"action": s.action, "status": s.status, "result": s.result}
+        "proposed_plan": [
+            {"action": s.action, "params": s.params}
             for s in state.plan_steps
         ],
         "patient_status": state.status,
+        "patient_diagnosis": getattr(state, "diagnosis", "unknown"),
         "re_eval_count": state.re_eval_count,
-        "new_vitals_added": True,
     }
+
+    # If this is a retry, include why the previous plan was rejected
+    if state.re_eval_count > 0 and state.termination_reason:
+        context["previous_rejection_reason"] = state.termination_reason
 
     messages = [
         SystemMessage(content=SYSTEM_PROMPT),
-        HumanMessage(content=f"Evaluate this cycle:\n{json.dumps(context, default=str, indent=2)}")
+        HumanMessage(content=f"Review this proposed plan:\n{json.dumps(context, default=str, indent=2)}")
     ]
 
+    state.log(f"[REEVAL] 🔍 Asking LLM to review {len(state.plan_steps)} plan steps...")
     response = llm.invoke(messages)
     raw = response.content.strip()
+
+    # Strip markdown code fences if present
     if raw.startswith("```json"):
         raw = raw[7:-3].strip()
     elif raw.startswith("```"):
         raw = raw[3:-3].strip()
 
+    print(f"[REEVAL] 📡 LLM review response: {raw}")
+
     try:
         data = json.loads(raw)
-        state.re_evaluated = data.get("re_evaluated", False)
-        state.termination_reason = data.get("termination_reason", "Evaluation completed")
+        approved = data.get("approved", True)
+        reason = data.get("reason", "No reason provided")
+
+        if approved:
+            # Plan approved → proceed to execute
+            state.re_evaluated = False
+            state.termination_reason = f"Plan approved: {reason}"
+            state.log(f"[REEVAL] ✅ Plan APPROVED → proceeding to Execute | {reason}")
+        else:
+            # Plan rejected → loop back to reason
+            state.re_evaluated = True
+            state.termination_reason = f"Plan rejected: {reason}"
+            state.log(f"[REEVAL] 🔄 Plan REJECTED → looping back to Reason | {reason}")
+
     except Exception as e:
-        state.log(f"[ERROR] Reeval parsing failed: {e}. Ending loop.")
+        state.log(f"[ERROR] Reeval parsing failed: {e} | raw: {raw}")
+        # If parsing fails, default to approve so we don't get stuck
         state.re_evaluated = False
-        state.termination_reason = f"Parse error: {e}"
+        state.termination_reason = f"Parse error (defaulting to approve): {e}"
 
     state.re_eval_count += 1
-    state.log(f"[REEVAL] Continue={state.re_evaluated} | Loop #{state.re_eval_count} | {state.termination_reason}")
-
+    state.log(f"[REEVAL] Loop #{state.re_eval_count} | approved={not state.re_evaluated} | {state.termination_reason}")
     return state

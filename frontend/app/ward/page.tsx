@@ -1,7 +1,7 @@
 "use client";
 
 import { useState, useEffect, useCallback } from "react";
-import { Patient, Alert, Task, Ward } from "@/lib/types";
+import { Patient, Alert, Task, Ward, Staff } from "@/lib/types";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -64,17 +64,19 @@ export default function WardPage() {
   const [alerts, setAlerts] = useState<Alert[]>([]);
   const [tasks, setTasks] = useState<Task[]>([]);
   const [wards, setWards] = useState<Ward[]>([]);
+  const [staff, setStaff] = useState<Staff[]>([]);
   const [wardState, setWardState] = useState({ total_patients: 0, available_nurses: 0, available_doctors: 0, pending_alerts: 0 });
   const [loading, setLoading] = useState(true);
 
   const loadData = useCallback(async () => {
     try {
-      const [pRes, aRes, tRes, wRes, wsRes] = await Promise.all([
+      const [pRes, aRes, tRes, wRes, wsRes, sRes] = await Promise.all([
         fetch(`${API_BASE}/patients`),
         fetch(`${API_BASE}/alerts`),
         fetch(`${API_BASE}/tasks`),
         fetch(`${API_BASE}/wards`),
         fetch(`${API_BASE}/ward-state`),
+        fetch(`${API_BASE}/staff`),
       ]);
 
       if (pRes.ok) {
@@ -139,6 +141,7 @@ export default function WardPage() {
       }
 
       if (wsRes.ok) setWardState(await wsRes.json());
+      if (sRes.ok) setStaff(await sRes.json());
     } catch { /* silently fail */ }
     finally { setLoading(false); }
   }, []);
@@ -153,6 +156,11 @@ export default function WardPage() {
   const updateTaskStatus = async (id: string, status: string) => {
     await fetch(`${API_BASE}/tasks/${id}/status?status=${status}`, { method: "PATCH" });
     setTasks((prev) => prev.map((t) => t.id === id ? { ...t, status: t.status } as Task : t));
+    loadData();
+  };
+
+  const assignTask = async (taskId: string, staffId: string) => {
+    await fetch(`${API_BASE}/tasks/${taskId}/assign?staff_id=${staffId}`, { method: "PATCH" });
     loadData();
   };
 
@@ -282,6 +290,24 @@ export default function WardPage() {
                     </div>
                     <div className="text-[12px] text-slate-600">{t.description}</div>
                     <div className="text-[11px] text-slate-400 mt-1">{t.task_type} · {timeAgo(t.created_at)}</div>
+                    {t.assigned_to && (
+                      <div className="text-[11px] text-blue-500 mt-0.5">
+                        👤 {staff.find(s => s.id === t.assigned_to)?.name ?? "Assigned"}
+                      </div>
+                    )}
+                    {(t.status === "open" || t.status === "in_progress") && (
+                      <select
+                        key={t.assigned_to ?? "unassigned"}
+                        value={t.assigned_to ?? ""}
+                        onChange={(e) => { if (e.target.value) assignTask(t.id, e.target.value); }}
+                        className="mt-1.5 text-[11px] px-2 py-0.5 border border-slate-200 rounded bg-white text-slate-600 outline-none cursor-pointer"
+                      >
+                        <option value="" disabled>Assign to...</option>
+                        {staff.filter(s => s.is_available).map(s => (
+                          <option key={s.id} value={s.id}>{s.name} ({s.role})</option>
+                        ))}
+                      </select>
+                    )}
                   </div>
                   {t.status === "open" && (
                     <button onClick={() => updateTaskStatus(t.id, "in_progress")} className="text-[11px] text-blue-600 hover:text-blue-800 flex-shrink-0 mt-0.5">Start</button>

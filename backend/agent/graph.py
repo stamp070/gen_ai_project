@@ -8,32 +8,28 @@ from agent.nodes.governance import governance_node
 from agent.nodes.plan import plan_node
 from agent.nodes.execute import execute_node
 from agent.nodes.reeval import reeval_node
+from tools.hospital_tools import execute_tool
+
 
 def should_reeval(state: AgentState) -> str:
-    """
-    Edge condition: loop or end
-    Allow more re-evaluations for critical/high-risk cases
-    """
-    # Determine max re-evaluations based on risk level
-    if state.risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH]:
-        max_revals = 5  # Critical/high risk: allow up to 5 attempts
-    else:
-        max_revals = 2  # Low/moderate: 2 attempts
-    
-    # Check if we should continue looping
-    if not state.re_evaluated or state.re_eval_count >= max_revals:
-        # Before ending, escalate if critical after max re-evals
-        if state.re_eval_count >= max_revals and state.risk_level == RiskLevel.CRITICAL:
-            from tools.hospital_tools import execute_tool
+    max_revals = 5 if state.risk_level in [RiskLevel.CRITICAL, RiskLevel.HIGH] else 2
+
+    # หมด max → force execute (ไม่ปล่อยให้จบโดยไม่ execute)
+    if state.re_eval_count >= max_revals:
+        if state.risk_level == RiskLevel.CRITICAL:
             state.log(f"[ESCALATION] Max re-evaluations ({max_revals}) reached for CRITICAL case")
             execute_tool("escalate_to_supervisor", {
                 "patient_id": state.patient_id,
-                "reason": f"Patient {state.patient_id} remains CRITICAL after {max_revals} monitoring cycles. Immediate doctor intervention required.",
+                "reason": f"Patient {state.patient_id} remains CRITICAL after {max_revals} monitoring cycles.",
                 "severity": "critical"
             })
-        return "end"
-    
-    return "execute_more" 
+        state.log(f"[REEVAL] Max loops ({max_revals}) reached → forcing execute with current plan")
+        return "to_execute"
+
+    if state.re_evaluated:
+        return "to_reason"
+
+    return "to_execute"
 
 def build_graph() -> StateGraph:
     graph = StateGraph(AgentState)
@@ -55,18 +51,20 @@ def build_graph() -> StateGraph:
     graph.add_edge("reason",     "goal")
     graph.add_edge("goal",       "governance")
     graph.add_edge("governance", "plan")
-    graph.add_edge("plan",       "execute")
-    graph.add_edge("execute",    "reeval")
+    graph.add_edge("plan",       "reeval")
 
     # Conditional edges from reeval
     graph.add_conditional_edges(
         "reeval",
         should_reeval,
         {
-            "execute_more": "reason",   
+            "to_reason": "reason",
+            "to_execute" : "execute",
             "end":          END,
         }
     )
+
+    graph.add_edge("execute",END)
 
     return graph.compile()
 
