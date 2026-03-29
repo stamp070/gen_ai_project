@@ -289,7 +289,21 @@ async def list_patients():
         result = sb.table("patients").select(
             "*, vitals(heart_rate, blood_pressure_sys, blood_pressure_dia, spo2, temperature, respiratory_rate, recorded_at)"
         ).eq("is_active", True).order("priority_rank").execute()
-        return result.data
+        
+        # Add risk_level based on priority_rank
+        data = result.data
+        for p in data:
+            rank = p.get("priority_rank") or 5
+            if rank <= 1:
+                p["risk_level"] = "critical"
+            elif rank == 2:
+                p["risk_level"] = "high"
+            elif rank == 3:
+                p["risk_level"] = "moderate"
+            else:
+                p["risk_level"] = "low"
+                
+        return data
     except Exception as e:
         raise HTTPException(status_code=500, detail=str(e))
 
@@ -340,9 +354,56 @@ async def list_staff():
         for row in result.data:
             ward = row.pop("wards", None)
             row["ward_name"] = ward["name"] if ward else None
+            # Count assigned tasks (open + in_progress)
+            task_count = sb.table("tasks").select("id", count="exact").eq(
+                "assigned_to", row["id"]
+            ).in_("status", ["open", "in_progress"]).execute()
+            row["patients_assigned"] = task_count.count or 0
             data.append(row)
         return data
     except Exception as e:
+        raise HTTPException(status_code=500, detail=str(e))
+
+
+@app.get("/staff/{staff_id}/patients")
+async def get_staff_patients(staff_id: str):
+    """Returns patients assigned to a staff member via active tasks."""
+    try:
+        sb = get_supabase()
+        # Fetch all tasks for this staff and eager-load the patient data
+        # Using a simpler query to avoid PostgREST query parsing issues
+        result = sb.table("tasks").select("*, patients(*)").eq("assigned_to", staff_id).execute()
+        print(result.data)
+        seen = set()
+        patients_list = []
+        for row in result.data:
+            # Only consider open or in progress tasks
+            if row.get("status") not in ["open", "in_progress"]:
+                continue
+                
+            p = row.get("patients")
+            if p and p.get("id") not in seen:
+                seen.add(p["id"])
+                
+                # Count active tasks for THIS patient assigned to THIS staff
+                task_count = sum(
+                    1 for r in result.data 
+                    if r.get("status") in ["open", "in_progress"] 
+                    and r.get("patients", {}).get("id") == p["id"]
+                )
+                
+                patients_list.append({
+                    "patient_code": p.get("patient_code"),
+                    "name": p.get("name"),
+                    "bed_number": p.get("bed_number"),
+                    "status": p.get("status"),
+                    "diagnosis": p.get("diagnosis"),
+                    "task_count": task_count,
+                })
+        return patients_list
+    except Exception as e:
+        import traceback
+        traceback.print_exc()
         raise HTTPException(status_code=500, detail=str(e))
 
 

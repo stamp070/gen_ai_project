@@ -2,6 +2,7 @@
 
 import { useState, useEffect, useCallback } from "react";
 import { Patient, Alert, Task, Ward, Staff } from "@/lib/types";
+import { ListTodo, CheckCircle2 } from "lucide-react";
 
 const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
@@ -308,13 +309,15 @@ export default function WardPage() {
                         ))}
                       </select>
                     )}
+                    <div className="mt-3 flex gap-2">
+                      {t.status === "open" && (
+                        <button onClick={() => updateTaskStatus(t.id, "in_progress")} className="h-7 px-3 bg-white border border-slate-200 rounded-md text-[11px] font-medium text-slate-700 hover:bg-slate-50 transition-colors shadow-sm flex items-center gap-1.5"><ListTodo size={12} className="text-slate-400" /> Start Task</button>
+                      )}
+                      {t.status === "in_progress" && (
+                        <button onClick={() => updateTaskStatus(t.id, "done")} className="h-7 px-3 bg-blue-600 text-white rounded-md text-[11px] font-medium hover:bg-blue-700 transition-colors shadow-sm flex items-center gap-1.5"><CheckCircle2 size={12} /> Complete Task</button>
+                      )}
+                    </div>
                   </div>
-                  {t.status === "open" && (
-                    <button onClick={() => updateTaskStatus(t.id, "in_progress")} className="text-[11px] text-blue-600 hover:text-blue-800 flex-shrink-0 mt-0.5">Start</button>
-                  )}
-                  {t.status === "in_progress" && (
-                    <button onClick={() => updateTaskStatus(t.id, "done")} className="text-[11px] text-green-600 hover:text-green-800 flex-shrink-0 mt-0.5">Done</button>
-                  )}
                 </div>
               ))}
             </div>

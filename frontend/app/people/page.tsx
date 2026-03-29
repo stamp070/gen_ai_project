@@ -7,10 +7,10 @@ const API_BASE = process.env.NEXT_PUBLIC_API_URL ?? "http://localhost:8080";
 
 function Badge({ children, color = "gray" }: { children: React.ReactNode; color?: "gray" | "blue" | "green" | "red" | "amber" }) {
   const s: Record<string, string> = {
-    gray:  "bg-slate-100 text-slate-500 border-slate-200",
-    blue:  "bg-blue-50 text-blue-700 border-blue-200",
+    gray: "bg-slate-100 text-slate-500 border-slate-200",
+    blue: "bg-blue-50 text-blue-700 border-blue-200",
     green: "bg-green-50 text-green-700 border-green-200",
-    red:   "bg-red-50 text-red-700 border-red-200",
+    red: "bg-red-50 text-red-700 border-red-200",
     amber: "bg-amber-50 text-amber-700 border-amber-200",
   };
   return <span className={`text-[11px] px-2 py-0.5 rounded-full border font-medium ${s[color]}`}>{children}</span>;
@@ -45,9 +45,8 @@ function PatientCard({ patient, onClick, selected }: { patient: Patient; onClick
   return (
     <button onClick={onClick} className={`w-full text-left rounded-xl border p-4 transition-all ${selected ? "border-blue-300 bg-blue-50" : "border-slate-200 bg-white hover:border-slate-300"}`}>
       <div className="flex items-center gap-3 mb-3">
-        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-medium flex-shrink-0 ${
-          patient.risk_level === "critical" ? "bg-red-100 text-red-700" : patient.risk_level === "high" ? "bg-amber-100 text-amber-700" : "bg-blue-50 text-blue-700"
-        }`}>
+        <div className={`w-9 h-9 rounded-full flex items-center justify-center text-[12px] font-medium flex-shrink-0 ${patient.risk_level === "critical" ? "bg-red-100 text-red-700" : patient.risk_level === "high" ? "bg-amber-100 text-amber-700" : "bg-blue-50 text-blue-700"
+          }`}>
           {initials(patient.name)}
         </div>
         <div className="flex-1 min-w-0">
@@ -127,6 +126,15 @@ function mapApiStaff(s: Record<string, unknown>): Staff {
 
 type Tab = "patients" | "staff";
 
+interface AssignedPatient {
+  patient_code: string;
+  name: string;
+  bed_number: string;
+  status: string;
+  diagnosis: string;
+  task_count: number;
+}
+
 export default function PeoplePage() {
   const [patients, setPatients] = useState<Patient[]>([]);
   const [staff, setStaff] = useState<Staff[]>([]);
@@ -135,6 +143,7 @@ export default function PeoplePage() {
   const [search, setSearch] = useState("");
   const [selectedPatientId, setSelectedPatientId] = useState<string>("");
   const [selectedStaffId, setSelectedStaffId] = useState<string>("");
+  const [assignedPatients, setAssignedPatients] = useState<AssignedPatient[]>([]);
 
   useEffect(() => {
     Promise.all([
@@ -147,8 +156,17 @@ export default function PeoplePage() {
       setStaff(mappedStaff);
       if (mapped.length > 0) setSelectedPatientId(mapped[0].id);
       if (mappedStaff.length > 0) setSelectedStaffId(mappedStaff[0].id);
-    }).catch(() => {}).finally(() => setLoading(false));
+    }).catch(() => { }).finally(() => setLoading(false));
   }, []);
+
+  // Fetch assigned patients when selected staff changes
+  useEffect(() => {
+    if (!selectedStaffId) return;
+    fetch(`${API_BASE}/staff/${selectedStaffId}/patients`)
+      .then((r) => r.ok ? r.json() : [])
+      .then((data) => setAssignedPatients(data))
+      .catch(() => setAssignedPatients([]));
+  }, [selectedStaffId]);
 
   const filteredPatients = patients.filter(
     (p) => p.name.toLowerCase().includes(search.toLowerCase()) || p.id.toLowerCase().includes(search.toLowerCase())
@@ -180,7 +198,7 @@ export default function PeoplePage() {
         <div className="flex items-center gap-1 bg-white border border-slate-200 rounded-xl px-2 py-2">
           {([
             { key: "patients" as Tab, label: "Patients", count: patients.length },
-            { key: "staff" as Tab,    label: "Staff",    count: staff.length },
+            { key: "staff" as Tab, label: "Staff", count: staff.length },
           ]).map((t) => (
             <button key={t.key} onClick={() => setTab(t.key)}
               className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-[13px] font-medium transition-colors ${tab === t.key ? "bg-blue-700 text-white" : "text-slate-500 hover:bg-slate-50"}`}>
@@ -203,9 +221,8 @@ export default function PeoplePage() {
               <div className="bg-white border border-slate-200 rounded-xl p-6 flex flex-col gap-5">
                 <div className="flex items-start justify-between">
                   <div className="flex items-center gap-4">
-                    <div className={`w-14 h-14 rounded-full flex items-center justify-center text-[18px] font-medium ${
-                      selectedPatient.risk_level === "critical" ? "bg-red-100 text-red-700" : selectedPatient.risk_level === "high" ? "bg-amber-100 text-amber-700" : "bg-blue-50 text-blue-700"
-                    }`}>{initials(selectedPatient.name)}</div>
+                    <div className={`w-14 h-14 rounded-full flex items-center justify-center text-[18px] font-medium ${selectedPatient.risk_level === "critical" ? "bg-red-100 text-red-700" : selectedPatient.risk_level === "high" ? "bg-amber-100 text-amber-700" : "bg-blue-50 text-blue-700"
+                      }`}>{initials(selectedPatient.name)}</div>
                     <div>
                       <div className="text-[18px] font-medium text-slate-900">{selectedPatient.name}</div>
                       <div className="text-[13px] text-slate-400 mt-0.5">{selectedPatient.id} · Age {selectedPatient.age} · Room {selectedPatient.room}</div>
@@ -273,8 +290,37 @@ export default function PeoplePage() {
                   </div>
                   <div className="bg-slate-50 border border-slate-100 rounded-xl p-4">
                     <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-1">Patients assigned</div>
-                    <div className="text-[16px] font-medium text-slate-900">{selectedStaff.patients_assigned ?? "—"}</div>
+                    <div className="text-[16px] font-medium text-slate-900">{selectedStaff.patients_assigned ?? 0}</div>
                   </div>
+                </div>
+
+                {/* Assigned patients list */}
+                <div>
+                  <div className="text-[11px] uppercase tracking-wider text-slate-400 mb-3">Assigned patients</div>
+                  {assignedPatients.length === 0 ? (
+                    <p className="text-[13px] text-slate-400 italic py-4 text-center">No patients currently assigned</p>
+                  ) : (
+                    <div className="flex flex-col gap-2">
+                      {assignedPatients.map((ap) => (
+                        <div key={ap.patient_code} className="flex items-center gap-3 bg-slate-50 border border-slate-100 rounded-lg px-4 py-3">
+                          <div className={`w-8 h-8 rounded-full flex items-center justify-center text-[11px] font-medium flex-shrink-0 ${ap.status === "critical_watch" || ap.status === "escalated" ? "bg-red-100 text-red-700" : "bg-blue-50 text-blue-700"
+                            }`}>
+                            {initials(ap.name)}
+                          </div>
+                          <div className="flex-1 min-w-0">
+                            <div className="text-[13px] font-medium text-slate-900">{ap.name}</div>
+                            <div className="text-[11px] text-slate-400">{ap.patient_code} · Bed {ap.bed_number} · {ap.diagnosis ?? "—"}</div>
+                          </div>
+                          <div className="flex items-center gap-2 flex-shrink-0">
+                            <Badge color={ap.status === "critical_watch" || ap.status === "escalated" ? "red" : ap.status === "watch" ? "amber" : "green"}>
+                              {ap.status.replace("_", " ")}
+                            </Badge>
+                            <span className="text-[10px] text-slate-400">{ap.task_count} task{ap.task_count > 1 ? "s" : ""}</span>
+                          </div>
+                        </div>
+                      ))}
+                    </div>
+                  )}
                 </div>
               </div>
             ) : (
