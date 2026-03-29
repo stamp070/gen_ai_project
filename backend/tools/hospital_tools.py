@@ -128,7 +128,21 @@ def set_patient_status(patient_id: str, new_status: str) -> dict:
         return {"patient_id": patient_id, "new_status": normalized, "status": f"error: {e}"}
 
 
+_LAB_URGENCY_MAP = {
+    "high": "urgent",
+    "critical": "stat",
+    "medium": "routine",
+    "low": "routine",
+    "normal": "routine",
+}
+VALID_LAB_URGENCIES = {"routine", "urgent", "stat"}
+
 def request_lab(patient_id: str, test_name: str, urgency: str = "routine", run_id: str = None) -> dict:
+    urgency = urgency.lower()
+    urgency = _LAB_URGENCY_MAP.get(urgency, urgency)
+    if urgency not in VALID_LAB_URGENCIES:
+        urgency = "routine"
+
     order_id = f"LAB-{datetime.utcnow().strftime('%H%M%S')}"
     print(f"🧪 LAB REQUEST [{urgency}] {patient_id}: {test_name}")
     try:
