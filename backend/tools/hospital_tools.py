@@ -51,8 +51,18 @@ def adjust_monitoring(patient_id: str, interval_min: int) -> dict:
         return {"patient_id": patient_id, "new_interval": interval_min, "status": f"error: {e}"}
 
 
+_PRIORITY_MAP = {
+    "high": "urgent",
+    "medium": "normal",
+    "low": "normal",
+}
+VALID_TASK_PRIORITIES = {"urgent", "normal", "critical"}
+
 def create_task(patient_id: str, task_type: str, priority: str, description: str, run_id: str = None) -> dict:
     task_id_display = f"TASK-{datetime.utcnow().strftime('%H%M%S')}"
+    priority = _PRIORITY_MAP.get(priority, priority)
+    if priority not in VALID_TASK_PRIORITIES:
+        priority = "normal"
     print(f"📋 CREATE TASK [{priority}] {task_id_display}: {description}")
     try:
         sb = get_supabase()
@@ -87,19 +97,35 @@ def update_priority_rank(patient_id: str, new_rank: int, reason: str) -> dict:
         return {"patient_id": patient_id, "new_rank": new_rank, "status": f"error: {e}"}
 
 
+_STATUS_MAP = {
+    "under_observation": "watch",
+    "under observation": "watch",
+    "observation": "watch",
+    "monitoring": "watch",
+    "stable": "stable",
+    "critical": "critical_watch",
+    "critical_watch": "critical_watch",
+    "escalated": "escalated",
+    "watch": "watch",
+}
+VALID_PATIENT_STATUSES = {"stable", "watch", "critical_watch", "escalated"}
+
 def set_patient_status(patient_id: str, new_status: str) -> dict:
-    print(f"🚨 STATUS {patient_id} → {new_status}")
+    normalized = _STATUS_MAP.get(new_status.lower(), new_status)
+    if normalized not in VALID_PATIENT_STATUSES:
+        normalized = "watch"
+    print(f"🚨 STATUS {patient_id} → {normalized} (requested: {new_status})")
     try:
         sb = get_supabase()
         patient_uuid = _resolve_patient_uuid(patient_id)
         sb.table("patients").update({
-            "status": new_status,
+            "status": normalized,
             "updated_at": datetime.utcnow().isoformat(),
         }).eq("id", patient_uuid).execute()
-        return {"patient_id": patient_id, "new_status": new_status, "status": "updated"}
+        return {"patient_id": patient_id, "new_status": normalized, "status": "updated"}
     except Exception as e:
         print(f"  ⚠️  set_patient_status DB write failed: {e}")
-        return {"patient_id": patient_id, "new_status": new_status, "status": f"error: {e}"}
+        return {"patient_id": patient_id, "new_status": normalized, "status": f"error: {e}"}
 
 
 def request_lab(patient_id: str, test_name: str, urgency: str = "routine", run_id: str = None) -> dict:

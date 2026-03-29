@@ -92,6 +92,7 @@ def get_ward_state(ward_id: str) -> dict:
         "available_nurses": avail_nurses,
         "available_doctors": avail_doctors,
         "pending_alerts": pending,
+        "workload_score": workload,
     }
 
 

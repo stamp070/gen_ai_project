@@ -541,14 +541,14 @@ export default function DoctorBlythe() {
                     <div className="w-2.5 h-2.5 rounded-full bg-red-500" /><div className="w-2.5 h-2.5 rounded-full bg-amber-500" /><div className="w-2.5 h-2.5 rounded-full bg-green-500" />
                     <span className="ml-2 text-[11px] text-blue-400 font-mono">agent_logs.terminal</span>
                   </div>
-                  <div ref={logsRef} className="flex flex-col gap-1.5 max-h-[160px] overflow-y-auto font-mono [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-thumb]:bg-blue-800 [&::-webkit-scrollbar-thumb]:rounded">
+                  <div ref={logsRef} className="flex flex-col gap-1.5 max-h-[160px] overflow-y-auto overflow-x-hidden font-mono [&::-webkit-scrollbar]:w-[3px] [&::-webkit-scrollbar-thumb]:bg-blue-800 [&::-webkit-scrollbar-thumb]:rounded">
                     {logs.length === 0
                       ? <span className="text-[12px] text-blue-400 opacity-40">_ Press &quot;Run agent&quot; to start...</span>
                       : logs.map((l, i) => (
-                        <div key={i} className="flex gap-2.5 text-[12px] leading-relaxed">
+                        <div key={i} className="flex gap-2.5 text-[12px] leading-relaxed min-w-0">
                           <span className="text-slate-500 shrink-0">{l.ts}</span>
                           <span className="text-blue-400 shrink-0">[{l.node}]</span>
-                          <span className="text-blue-200">{l.msg}</span>
+                          <span className="text-blue-200 break-words min-w-0">{l.msg}</span>
                         </div>
                       ))}
                   </div>

@@ -32,6 +32,7 @@ class WardState(BaseModel):
     available_nurses: int
     available_doctors: int
     pending_alerts: int
+    workload_score: float = 0.0
 
 class PlanStep(BaseModel):
     step_id: str
