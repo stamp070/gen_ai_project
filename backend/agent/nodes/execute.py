@@ -1,38 +1,42 @@
 """
-• Execute steps ONE AT A TIME — not all at once
-• After each step, re-observe state changes
-• Side-effects are reflected into AgentState immediately
-• Tools also persist to Supabase (alerts, tasks)
+execute.py — Execute plan steps ONE AT A TIME and write real side-effects to DB.
+patient_id and run_id are injected into tool params so DB tools can persist properly.
 """
 from agent.state import AgentState, PatientStatus
 from tools.hospital_tools import execute_tool
 
 
 def execute_node(state: AgentState) -> AgentState:
-    """
-    Node 7: Execute plan steps ONE BY ONE.
-    Each step mutates state so re-eval sees updated data.
-    """
     if not state.plan_steps:
         state.log("[EXECUTE] No plan steps to execute")
         return state
 
     total = len(state.plan_steps)
+    run_id = getattr(state, "run_id", None)
+
     for i, step in enumerate(state.plan_steps):
         if step.status in ("done", "skipped", "failed"):
-            continue  # skip already-processed steps on re-loop
+            continue
 
         state.log(f"[EXECUTE] ▶ Step {i+1}/{total}: {step.action}({step.params})")
 
-        # Execute the tool
-        result = execute_tool(step.action, step.params)
+        # Inject patient_id + run_id into tools that accept them
+        enriched_params = dict(step.params)
+        _PATIENT_TOOLS = {"notify", "adjust_monitoring", "create_task",
+                          "update_priority_rank", "set_patient_status",
+                          "request_lab", "escalate_to_supervisor", "insert_vitals"}
+        if step.action in _PATIENT_TOOLS:
+            if "patient_id" not in enriched_params:
+                enriched_params["patient_id"] = state.patient_id
+            if "run_id" not in enriched_params and run_id:
+                enriched_params["run_id"] = str(run_id)
 
-        # Mark step done
+        result = execute_tool(step.action, enriched_params)
         step.status = "done"
         step.result = result
 
-        # Immediately reflect side-effects into state
-        _apply_tool_effects(state, step.action, step.params)
+        # Reflect side-effects back into state so reeval sees updated data
+        _apply_tool_effects(state, step.action, enriched_params)
 
         state.log(f"[EXECUTE] ✅ {step.action} → {result}")
 
@@ -40,10 +44,6 @@ def execute_node(state: AgentState) -> AgentState:
 
 
 def _apply_tool_effects(state: AgentState, action: str, params: dict):
-    """
-    Reflect every tool's side-effect back into state immediately.
-    This makes re-eval see the real updated state, not stale data.
-    """
     if action == "adjust_monitoring":
         state.monitoring_interval_min = params.get("interval_min", state.monitoring_interval_min)
 
@@ -53,12 +53,10 @@ def _apply_tool_effects(state: AgentState, action: str, params: dict):
     elif action == "set_patient_status":
         try:
             state.status = PatientStatus(params.get("new_status"))
-            print("Set New Status",state.status)
         except ValueError:
             pass
 
     elif action == "notify":
-        # Log into medical notes so next LLM call sees it
         note = f"[NOTIFIED] {params.get('role','')} — {params.get('message','')} (priority={params.get('priority','normal')})"
         state.medical_notes.append(note)
 

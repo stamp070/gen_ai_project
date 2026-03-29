@@ -7,6 +7,7 @@ import json
 from datetime import datetime
 from typing import Any, Optional
 from uuid import UUID
+import re
 
 from db.supabase_client import get_supabase
 
@@ -65,7 +66,14 @@ def get_ward_state(ward_id: str) -> dict:
     - Count open alerts
     """
     sb = get_supabase()
-    
+
+    # Resolve ward_id: if not a real UUID, fetch the first ward's actual UUID
+    UUID_RE = re.compile(r'^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$', re.I)
+    if not UUID_RE.match(ward_id):
+        ward_row = sb.table("wards").select("id").limit(1).execute()
+        if ward_row.data:
+            ward_id = ward_row.data[0]["id"]
+
     patients = sb.table("patients").select("id", count="exact").eq("ward_id", ward_id).eq("is_active", True).execute()
     nurses = sb.table("staff").select("id", count="exact").eq("ward_id", ward_id).eq("role", "nurse").eq("is_available", True).execute()
     doctors = sb.table("staff").select("id", count="exact").eq("ward_id", ward_id).eq("role", "doctor").eq("is_available", True).execute()

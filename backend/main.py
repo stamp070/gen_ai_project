@@ -164,7 +164,7 @@ async def _stream_agent(req: RunRequest) -> AsyncGenerator[str, None]:
 
     history = _build_vitals(req.vitals_history)
     # Load ward state from Supabase (live data)
-    ward_state_dict = get_ward_state("a1b2c3d4-e5f6-7890-abcd-1234567890ab")
+    ward_state_dict = get_ward_state("default_ward")
     
     initial_state = AgentState(
         patient_id=req.patient_id,
@@ -182,11 +182,15 @@ async def _stream_agent(req: RunRequest) -> AsyncGenerator[str, None]:
     # Use LangGraph streaming mode
     graph = build_graph()
     t0 = time.time()
+    final_state: dict = {}
 
     try:
         # stream_mode="updates" yields dict of {node_name: state_update} per step
         for chunk in graph.stream(initial_state, stream_mode="updates"):
             for node_name, state_update in chunk.items():
+                # Track last state for final event
+                if isinstance(state_update, dict):
+                    final_state = state_update
                 # Extract latest log entry from the state update
                 action_log = state_update.get("action_log", []) if isinstance(state_update, dict) else []
                 latest_logs = action_log[-3:] if action_log else []
@@ -247,11 +251,8 @@ async def _stream_agent(req: RunRequest) -> AsyncGenerator[str, None]:
 
     duration_ms = int((time.time() - t0) * 1000)
 
-    # Final state — get from last chunk
-    try:
-        final = graph.invoke(initial_state)  # re-run to get final state (or keep last chunk)
-    except Exception:
-        final = {}
+    # Use final_state captured from last chunk — no need to re-invoke
+    final = final_state
 
     yield _sse("run_complete", {
         "patient_id": req.patient_id,
