@@ -640,11 +640,11 @@ export default function DoctorBlythe() {
         </section>
 
         {/* Main grid */}
-        <div className="grid grid-cols-[1fr_340px] gap-4">
+        <div className="grid grid-cols-[1fr_340px] gap-4 items-start">
           {/* Left: pipeline + live feed */}
-          <div className="flex flex-col gap-4">
+          <div className="flex flex-col gap-4 min-w-0">
             {/* Pipeline */}
-            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden">
+            <div className="bg-white border border-slate-200 rounded-xl overflow-hidden min-w-0">
               <div className="px-5 py-3 border-b border-slate-200 flex items-center justify-between">
                 <span className="text-[11px] font-medium uppercase tracking-wider text-slate-400">Thought process pipeline</span>
                 <div className="flex items-center gap-2">
@@ -693,10 +693,10 @@ export default function DoctorBlythe() {
                     {logs.length === 0
                       ? <span className="text-[12px] text-blue-400 opacity-40">_ Press &quot;Run agent&quot; to start...</span>
                       : logs.map((l, i) => (
-                        <div key={i} className="flex gap-2.5 text-[12px] leading-relaxed min-w-0">
-                          <span className="text-slate-500 shrink-0">{l.ts}</span>
-                          <span className="text-blue-400 shrink-0">[{l.node}]</span>
-                          <span className="text-blue-200 break-words min-w-0">{l.msg}</span>
+                        <div key={i} className="grid grid-cols-[auto_auto_1fr] gap-2.5 text-[12px] leading-relaxed w-full">
+                          <span className="text-slate-500 whitespace-nowrap">{l.ts}</span>
+                          <span className="text-blue-400 whitespace-nowrap">[{l.node}]</span>
+                          <span className="text-blue-200 break-words whitespace-pre-wrap min-w-0">{l.msg}</span>
                         </div>
                       ))}
                   </div>
